@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Пинг-Понг</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #000000;
+      --accent: #4caf50;
+    }
+    body.dark {
+      --bg: #121212;
+      --fg: #f1f1f1;
+      --accent: #ff9800;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+    }
+    header {
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    select, button {
+      padding: 5px 10px;
+      border-radius: 5px;
+      border: 1px solid var(--accent);
+      background: var(--bg);
+      color: var(--fg);
+      cursor: pointer;
+    }
+    canvas {
+      background: #222;
+      border: 3px solid var(--accent);
+      border-radius: 5px;
+    }
+    #scoreboard {
+      margin-top: 10px;
+      max-height: 120px;
+      overflow-y: auto;
+      border: 1px solid var(--accent);
+      padding: 5px;
+      border-radius: 5px;
+      width: 260px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <label>Сложность:
+      <select id="difficulty">
+        <option value="easy">Легко</option>
+        <option value="medium" selected>Средне</option>
+        <option value="hard">Сложно</option>
+      </select>
+    </label>
+    <button id="themeBtn">Тема: Светлая</button>
+    <button id="resetScores">Сбросить рекорды</button>
+  </header>
+  <canvas id="gameCanvas" width="500" height="300"></canvas>
+  <div id="scoreboard">
+    <strong>Таблица рекордов</strong>
+    <ul id="scoresList"></ul>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let paddleHeight = 60, paddleWidth = 10;
+    let leftPaddleY = canvas.height / 2 - paddleHeight / 2;
+    let rightPaddleY = canvas.height / 2 - paddleHeight / 2;
+    let ballX = canvas.width / 2, ballY = canvas.height / 2;
+    let ballRadius = 8;
+    let ballSpeedX = 3, ballSpeedY = 2;
+    let upPressed = false, downPressed = false;
+    let playerScore = 0;
+    let aiSpeed = 2;
+
+    function drawPaddle(x, y) {
+      ctx.fillRect(x, y, paddleWidth, paddleHeight);
+    }
+    function drawBall() {
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, ballRadius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawPaddle(10, leftPaddleY);
+      drawPaddle(canvas.width - paddleWidth - 10, rightPaddleY);
+      drawBall();
+
+      // движение мяча
+      ballX += ballSpeedX;
+      ballY += ballSpeedY;
+
+      if (ballY + ballRadius > canvas.height || ballY - ballRadius < 0) {
+        ballSpeedY = -ballSpeedY;
+      }
+
+      // столкновение с левой ракеткой
+      if (ballX - ballRadius < 20 && ballY > leftPaddleY && ballY < leftPaddleY + paddleHeight) {
+        ballSpeedX = -ballSpeedX;
+      }
+      // столкновение с правой ракеткой
+      if (ballX + ballRadius > canvas.width - 20 && ballY > rightPaddleY && ballY < rightPaddleY + paddleHeight) {
+        ballSpeedX = -ballSpeedX;
+      }
+
+      // Очки
+      if (ballX < 0) {
+        saveScore(playerScore);
+        resetBall();
+      } else if (ballX > canvas.width) {
+        playerScore++;
+        resetBall();
+      }
+
+      // Управление игрока
+      if (upPressed && leftPaddleY > 0) leftPaddleY -= 4;
+      if (downPressed && leftPaddleY < canvas.height - paddleHeight) leftPaddleY += 4;
+
+      // AI
+      if (ballY < rightPaddleY + paddleHeight / 2) rightPaddleY -= aiSpeed;
+      else if (ballY > rightPaddleY + paddleHeight / 2) rightPaddleY += aiSpeed;
+    }
+
+    function resetBall() {
+      ballX = canvas.width / 2;
+      ballY = canvas.height / 2;
+      ballSpeedX = -ballSpeedX;
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp') upPressed = true;
+      if (e.key === 'ArrowDown') downPressed = true;
+    });
+    document.addEventListener('keyup', e => {
+      if (e.key === 'ArrowUp') upPressed = false;
+      if (e.key === 'ArrowDown') downPressed = false;
+    });
+
+    // Сложность
+    document.getElementById('difficulty').addEventListener('change', e => {
+      if (e.target.value === 'easy') aiSpeed = 1.5;
+      if (e.target.value === 'medium') aiSpeed = 2.5;
+      if (e.target.value === 'hard') aiSpeed = 4;
+    });
+
+    // Тема
+    const themeBtn = document.getElementById('themeBtn');
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      themeBtn.textContent = document.body.classList.contains('dark') ? 'Тема: Тёмная' : 'Тема: Светлая';
+    });
+
+    // Таблица рекордов
+    function saveScore(score) {
+      let scores = JSON.parse(localStorage.getItem('pongScores')) || [];
+      scores.push(score);
+      scores.sort((a,b) => b - a);
+      if (scores.length > 5) scores = scores.slice(0,5);
+      localStorage.setItem('pongScores', JSON.stringify(scores));
+      renderScores();
+    }
+    function renderScores() {
+      const scores = JSON.parse(localStorage.getItem('pongScores')) || [];
+      const list = document.getElementById('scoresList');
+      list.innerHTML = scores.map(s => `<li>${s}</li>`).join('');
+    }
+    renderScores();
+
+    document.getElementById('resetScores').addEventListener('click', () => {
+      localStorage.removeItem('pongScores');
+      renderScores();
+    });
+
+    function gameLoop() {
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+  </script>
+</body>
+</html>
