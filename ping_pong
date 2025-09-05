@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Пинг-Понг</title>
+  <style>
+    :root {
+      --bg: #f0f0f0;
+      --fg: #333333;
+      --accent: #2196F3; /* Яркий синий */
+      --paddle: #4CAF50; /* Зеленый для ракеток */
+      --ball: #FFC107;   /* Желтый для мяча */
+      --canvas-bg: #424242; /* Темно-серый фон поля */
+    }
+    body.dark {
+      --bg: #1e1e1e;
+      --fg: #e0e0e0;
+      --accent: #FF9800; /* Яркий оранжевый */
+      --paddle: #f44336; /* Красный для ракеток */
+      --ball: #8BC34A;   /* Светло-зеленый для мяча */
+      --canvas-bg: #212121; /* Очень темно-серый фон поля */
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 10px;
+      box-sizing: border-box;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+    header {
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+    select, button {
+      padding: 8px 15px;
+      border-radius: 20px; /* Более круглые кнопки */
+      border: 1px solid var(--accent);
+      background: var(--bg);
+      color: var(--fg);
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    select:hover, button:hover {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    canvas {
+      background: var(--canvas-bg);
+      border: 5px solid var(--accent);
+      border-radius: 15px; /* Скругленные углы поля */
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      max-width: 95%; /* Адаптивность для узких экранов */
+      touch-action: none; /* Предотвращает прокрутку страницы при касании канваса */
+    }
+    #scoreboard {
+      margin-top: 20px;
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid var(--accent);
+      padding: 10px;
+      border-radius: 10px;
+      width: 280px;
+      background: var(--bg);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    #scoresList {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #scoresList li {
+      padding: 5px 0;
+      border-bottom: 1px dashed #ccc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #scoresList li:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <label>Сложность:
+      <select id="difficulty">
+        <option value="easy">Легко</option>
+        <option value="medium" selected>Средне</option>
+        <option value="hard">Сложно</option>
+      </select>
+    </label>
+    <label>Игрок 2:
+      <select id="player2Type">
+        <option value="ai" selected>Бот</option>
+        <option value="human">Человек</option>
+      </select>
+    </label>
+    <button id="themeBtn">Тема: Светлая</button>
+    <button id="resetScores">Сбросить рекорды</button>
+  </header>
+  <canvas id="gameCanvas" width="300" height="400"></canvas>
+  <div id="scoreboard">
+    <strong>Таблица рекордов</strong>
+    <ul id="scoresList"></ul>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let paddleHeight = 80, paddleWidth = 12;
+    let leftPaddleY = canvas.height / 2 - paddleHeight / 2;
+    let rightPaddleY = canvas.height / 2 - paddleHeight / 2;
+    let ballX = canvas.width / 2, ballY = canvas.height / 2;
+    let ballRadius = 8;
+    let ballSpeedX = 3, ballSpeedY = 2;
+    let player1Score = 0;
+    let player2Score = 0; // Добавлено для второго игрока
+    let aiSpeed = 2.5;
+    let player2IsHuman = false; // Флаг для определения типа второго игрока
+    
+    let touchStartClientY = null; // Используем clientY для корректного расчета
+
+    // Отрисовка скругленных ракеток
+    function drawPaddle(x, y, color) {
+      ctx.fillStyle = color || getComputedStyle(document.documentElement).getPropertyValue('--paddle');
+      ctx.beginPath();
+      ctx.roundRect(x, y, paddleWidth, paddleHeight, 5); // Скругление на 5px
+      ctx.fill();
+    }
+    // Отрисовка скругленного мяча
+    function drawBall(color) {
+      ctx.fillStyle = color || getComputedStyle(document.documentElement).getPropertyValue('--ball');
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Рисуем центральную линию
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg');
+      ctx.setLineDash([5, 5]); // Пунктирная линия
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 0);
+      ctx.lineTo(canvas.width / 2, canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]); // Сбрасываем пунктир
+
+      drawPaddle(10, leftPaddleY);
+      drawPaddle(canvas.width - paddleWidth - 10, rightPaddleY);
+      drawBall();
+
+      // Отображение счета
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg');
+      ctx.font = '24px "Segoe UI"';
+      ctx.fillText(player1Score, canvas.width / 4, 30);
+      ctx.fillText(player2Score, canvas.width * 3 / 4 - 15, 30);
+
+
+      // движение мяча
+      ballX += ballSpeedX;
+      ballY += ballSpeedY;
+
+      // Отскок от верхнего и нижнего краев
+      if (ballY + ballRadius > canvas.height || ballY - ballRadius < 0) {
+        ballSpeedY = -ballSpeedY;
+      }
+
+      // Столкновение с левой ракеткой
+      if (ballX - ballRadius < 10 + paddleWidth && ballY > leftPaddleY && ballY < leftPaddleY + paddleHeight) {
+        ballSpeedX = -ballSpeedX;
+        ballX = 10 + paddleWidth + ballRadius; // Предотвращаем застревание мяча
+      }
+      // Столкновение с правой ракеткой
+      if (ballX + ballRadius > canvas.width - 10 - paddleWidth && ballY > rightPaddleY && ballY < rightPaddleY + paddleHeight) {
+        ballSpeedX = -ballSpeedX;
+        ballX = canvas.width - 10 - paddleWidth - ballRadius; // Предотвращаем застревание мяча
+      }
+
+      // Очки и перезапуск при пропуске мяча
+      if (ballX < 0) { // Мяч пропущен левым игроком
+        player2Score++;
+        resetBall('left');
+      } else if (ballX > canvas.width) { // Мяч пропущен правым игроком
+        player1Score++;
+        resetBall('right');
+      }
+
+      // AI или второй игрок
+      if (!player2IsHuman) {
+        // AI
+        if (ballY < rightPaddleY + paddleHeight / 2) rightPaddleY -= aiSpeed;
+        else if (ballY > rightPaddleY + paddleHeight / 2) rightPaddleY += aiSpeed;
+
+        // Ограничение движения AI
+        if (rightPaddleY < 0) rightPaddleY = 0;
+        if (rightPaddleY > canvas.height - paddleHeight) rightPaddleY = canvas.height - paddleHeight;
+
+      } else {
+        // Управление вторым игроком с клавиатуры (добавлено для удобства тестирования)
+        // Для мобильных устройств можно добавить вторую сенсорную область
+      }
+    }
+
+    // `direction` указывает, кто пропустил мяч (для определения начальной скорости мяча)
+    function resetBall(lastScorer = 'none') {
+      ballX = canvas.width / 2;
+      ballY = canvas.height / 2;
+      
+      // Мяч летит в сторону пропустившего игрока
+      if (lastScorer === 'left') {
+        ballSpeedX = Math.abs(ballSpeedX); // Летит вправо
+      } else if (lastScorer === 'right') {
+        ballSpeedX = -Math.abs(ballSpeedX); // Летит влево
+      } else {
+        ballSpeedX = (Math.random() > 0.5 ? 1 : -1) * 3; // Случайное направление
+      }
+      
+      ballSpeedY = (Math.random() > 0.5 ? 1 : -1) * 2; // Случайное направление по Y
+    }
+
+    // --- Управление ---
+
+    // Управление игрока 1 (клавиатура)
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp' && leftPaddleY > 0) leftPaddleY -= 15; // Увеличена скорость
+      if (e.key === 'ArrowDown' && leftPaddleY < canvas.height - paddleHeight) leftPaddleY += 15; // Увеличена скорость
+
+      // Управление игрока 2 (клавиатура) - если он человек
+      if (player2IsHuman) {
+        if (e.key === 'w' && rightPaddleY > 0) rightPaddleY -= 15;
+        if (e.key === 's' && rightPaddleY < canvas.height - paddleHeight) rightPaddleY += 15;
+      }
+    });
+
+    // Управление игрока 1 (сенсорный экран - левая половина)
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault(); // Предотвратить скролл страницы
+      // Определяем, на какой половине экрана произошло касание
+      const touch = e.touches[0];
+      if (touch.clientX < canvas.width / 2 + canvas.offsetLeft) { // Левая половина
+        touchStartClientY = touch.clientY;
+      }
+    });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault(); // Предотвратить скролл страницы
+      const touch = e.touches[0];
+      // Управление для левой ракетки
+      if (touchStartClientY !== null && touch.clientX < canvas.width / 2 + canvas.offsetLeft) {
+        const deltaY = touch.clientY - touchStartClientY;
+        const newPaddleY = leftPaddleY + deltaY;
+        
+        if (newPaddleY >= 0 && newPaddleY <= canvas.height - paddleHeight) {
+          leftPaddleY = newPaddleY;
+        } else if (newPaddleY < 0) {
+          leftPaddleY = 0;
+        } else if (newPaddleY > canvas.height - paddleHeight) {
+          leftPaddleY = canvas.height - paddleHeight;
+        }
+        touchStartClientY = touch.clientY; // Обновляем начальную позицию для плавного движения
+      }
+
+      // Управление для игрока 2 (если человек) - правая половина экрана
+      if (player2IsHuman && touch.clientX > canvas.width / 2 + canvas.offsetLeft) {
+        // Здесь можно реализовать отдельное сенсорное управление для второго игрока
+        // Например, отслеживать другое касание или разделить экран на две активные области
+        // Для простоты пока оставим только клавиатурное управление для игрока 2.
+        // Или можно модифицировать `touchmove` так, чтобы оно управляло ракеткой, к которой ближе палец.
+        // Для двух игроков на одном тачскрине лучше использовать `e.touches` и отслеживать оба пальца.
+        // Пока оставим как есть, с одним тач-управлением для левой ракетки.
+      }
+    });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      touchStartClientY = null; // Сбрасываем начальную позицию при отпускании
+    });
+
+
+    // --- Настройки игры ---
+
+    // Сложность AI
+    document.getElementById('difficulty').addEventListener('change', e => {
+      if (e.target.value === 'easy') aiSpeed = 1.5;
+      if (e.target.value === 'medium') aiSpeed = 2.5;
+      if (e.target.value === 'hard') aiSpeed = 4;
+    });
+
+    // Смена типа игрока 2
+    document.getElementById('player2Type').addEventListener('change', e => {
+      player2IsHuman = (e.target.value === 'human');
+    });
+
+    // Тема
+    const themeBtn = document.getElementById('themeBtn');
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      themeBtn.textContent = document.body.classList.contains('dark') ? 'Тема: Тёмная' : 'Тема: Светлая';
+    });
+
+    // Таблица рекордов
+    function saveScore(player1Score, player2Score) {
+      let scores = JSON.parse(localStorage.getItem('pongScores')) || [];
+      // Сохраняем счет каждого игрока в паре
+      scores.push({ player1: player1Score, player2: player2Score, date: new Date().toLocaleString() });
+      scores.sort((a,b) => (b.player1 + b.player2) - (a.player1 + a.player2)); // Сортировка по сумме очков
+      if (scores.length > 5) scores = scores.slice(0,5);
+      localStorage.setItem('pongScores', JSON.stringify(scores));
+      renderScores();
+    }
+
+    function renderScores() {
+      const scores = JSON.parse(localStorage.getItem('pongScores')) || [];
+      const list = document.getElementById('scoresList');
+      list.innerHTML = scores.map(s => `<li>Игрок 1: ${s.player1} - Игрок 2: ${s.player2} (${s.date})</li>`).join('');
+    }
+    renderScores();
+
+    document.getElementById('resetScores').addEventListener('click', () => {
+      localStorage.removeItem('pongScores');
+      renderScores();
+    });
+
+    // Основной игровой цикл
+    function gameLoop() {
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+  </script>
+</body>
+</html>
